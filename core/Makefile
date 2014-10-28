@@ -2070,6 +2070,7 @@ RECOVERY_WIPE_DATA_MENU_HEADER_TEXT_FILE :=
 endif # TARGET_RECOVERY_UI_SCREEN_WIDTH
 
 ifneq ($(TARGET_RECOVERY_DEVICE_DIRS),)
+<<<<<<< HEAD
 		recovery_root_private := $(strip \
 				  $(foreach d,$(TARGET_RECOVERY_DEVICE_DIRS), $(wildcard $(d)/recovery/root)))
 		else
@@ -2077,6 +2078,15 @@ recovery_root_private := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery/root))
 endif
 ifneq ($(recovery_root_private),)
 		recovery_root_deps := $(shell find $(recovery_root_private) -type f)
+=======
+recovery_root_private := $(strip \
+  $(foreach d,$(TARGET_RECOVERY_DEVICE_DIRS), $(wildcard $(d)/recovery/root)))
+else
+recovery_root_private := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery/root))
+endif
+ifneq ($(recovery_root_private),)
+recovery_root_deps := $(shell find $(recovery_root_private) -type f)
+>>>>>>> 4f985155d... build: recovery: Support adding device-specific items
 endif
 
 ifndef TARGET_PRIVATE_RES_DIRS
@@ -2224,8 +2234,7 @@ $(recovery_uncompressed_ramdisk): $(MKBOOTFS) \
 	    $(recovery_sepolicy) \
 	    $(INSTALLED_2NDBOOTLOADER_TARGET) \
 	    $(INSTALLED_RECOVERY_BUILD_PROP_TARGET) \
-	    $(recovery_resource_deps) \
-	    $(recovery_root_deps) \
+	    $(recovery_resource_deps) $(recovery_root_deps) \
 	    $(recovery_fstab)
 	# Making recovery image
 	mkdir -p $(TARGET_RECOVERY_OUT)
