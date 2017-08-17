@@ -1241,6 +1241,15 @@ endif
 # Rules for MTK targets
 -include $(TOPDIR)vendor/*/build/core/mtk_target.mk
 
+## We need to be sure the global selinux policies are included
+## last, to avoid accidental resetting by device configs
+# $(eval include device/octavi/sepolicy/common/sepolicy.mk)
+
+# Include any vendor specific config.mk file
+-include $(TOPDIR)vendor/*/build/core/config.mk
+
+# Include any vendor specific apicheck.mk file
+-include $(TOPDIR)vendor/*/build/core/apicheck.mk
 
 -include external/linux-kselftest/android/kselftest_test_list.mk
 -include external/ltp/android/ltp_package_list.mk
