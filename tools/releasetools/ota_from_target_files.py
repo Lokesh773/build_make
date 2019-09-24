@@ -834,6 +834,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   else:
     sysmount = "/system"
 
+  if target_info.get("system_root_image") == "true":
+    sysmount = "/"
+  else:
+    sysmount = "/system"
+
   if OPTIONS.backuptool:
     script.RunBackup("backup", sysmount, target_info.get('use_dynamic_partitions') == "true")
 
