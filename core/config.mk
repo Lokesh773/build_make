@@ -299,6 +299,11 @@ ifneq ($(BLISS_BUILD),)
 include vendor/bliss/config/BoardConfigBliss.mk
 endif
 
+ifneq ($(OCTAVI_BUILD),)
+include vendor/octavi/config/BoardConfigOctavi.mk
+endif
+
+
 # The build system exposes several variables for where to find the kernel
 # headers:
 #   TARGET_DEVICE_KERNEL_HEADERS is automatically created for the current
