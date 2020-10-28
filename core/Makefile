@@ -1,14 +1,5 @@
+
 # Put some miscellaneous rules here
-
-#
-# Build system colors
-#
-# PFX: Prefix "target C++:" in yellow
-# INS: Module "Install:" output color (cyan for ics)
-
-ifneq ($(BUILD_WITH_COLORS),0)
-    include $(TOP_DIR)build/core/colors.mk
-endif
 
 # HACK: clear LOCAL_PATH from including last build target before calling
 # intermedites-dir-for
@@ -329,7 +320,16 @@ BUILD_VERSION_TAGS := $(BUILD_VERSION_TAGS)
 ifeq ($(TARGET_BUILD_TYPE),debug)
   BUILD_VERSION_TAGS += debug
 endif
-BUILD_KEYS := release-keys
+# The "test-keys" tag marks builds signed with the old test keys,
+# which are available in the SDK.  "dev-keys" marks builds signed with
+# non-default dev keys (usually private keys from a vendor directory).
+# Both of these tags will be removed and replaced with "release-keys"
+# when the target-files is signed in a post-build step.
+ifeq ($(DEFAULT_SYSTEM_DEV_CERTIFICATE),build/make/target/product/security/testkey)
+BUILD_KEYS := test-keys
+else
+BUILD_KEYS := dev-keys
+endif
 BUILD_VERSION_TAGS += $(BUILD_KEYS)
 BUILD_VERSION_TAGS := $(subst $(space),$(comma),$(sort $(BUILD_VERSION_TAGS)))
 
@@ -1942,9 +1942,6 @@ recovery_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.img
 recovery_uncompressed_ramdisk := $(PRODUCT_OUT)/ramdisk-recovery.cpio
 recovery_resources_common := $(call include-path-for, recovery)/res
 
-ifneq (,$(TARGET_RECOVERY_DENSITY))
-recovery_density := $(filter %dpi,$(TARGET_RECOVERY_DENSITY))
-else
 # Set recovery_density to a density bucket based on TARGET_SCREEN_DENSITY, PRODUCT_AAPT_PREF_CONFIG,
 # or mdpi, in order of preference. We support both specific buckets (e.g. xdpi) and numbers,
 # which get remapped to a bucket.
@@ -1959,7 +1956,6 @@ recovery_density := $(strip \
        $(if $(filter $(shell echo $$(($(recovery_density_value) >= 400))),1),xxhdpi),\
        $(if $(filter $(shell echo $$(($(recovery_density_value) >= 280))),1),xhdpi),\
        $(if $(filter $(shell echo $$(($(recovery_density_value) >= 200))),1),hdpi,mdpi)))
-endif
 endif
 
 ifneq (,$(wildcard $(recovery_resources_common)-$(recovery_density)))
@@ -2075,13 +2071,13 @@ RECOVERY_WIPE_DATA_MENU_HEADER_TEXT_FILE :=
 endif # TARGET_RECOVERY_UI_SCREEN_WIDTH
 
 ifneq ($(TARGET_RECOVERY_DEVICE_DIRS),)
-recovery_root_private := $(strip \
-  $(foreach d,$(TARGET_RECOVERY_DEVICE_DIRS), $(wildcard $(d)/recovery/root)))
-else
+		recovery_root_private := $(strip \
+				  $(foreach d,$(TARGET_RECOVERY_DEVICE_DIRS), $(wildcard $(d)/recovery/root)))
+		else
 recovery_root_private := $(strip $(wildcard $(TARGET_DEVICE_DIR)/recovery/root))
 endif
 ifneq ($(recovery_root_private),)
-recovery_root_deps := $(shell find $(recovery_root_private) -type f)
+		recovery_root_deps := $(shell find $(recovery_root_private) -type f)
 endif
 
 ifndef TARGET_PRIVATE_RES_DIRS
@@ -2135,7 +2131,6 @@ INSTALLED_RECOVERY_BUILD_PROP_TARGET := $(TARGET_RECOVERY_ROOT_OUT)/prop.default
 
 $(INSTALLED_RECOVERY_BUILD_PROP_TARGET): PRIVATE_RECOVERY_UI_PROPERTIES := \
     TARGET_RECOVERY_UI_ANIMATION_FPS:animation_fps \
-    TARGET_RECOVERY_UI_BLANK_UNBLANK_ON_INIT:blank_unblank_on_init \
     TARGET_RECOVERY_UI_MARGIN_HEIGHT:margin_height \
     TARGET_RECOVERY_UI_MARGIN_WIDTH:margin_width \
     TARGET_RECOVERY_UI_MENU_UNUSABLE_ROWS:menu_unusable_rows \
@@ -2230,7 +2225,8 @@ $(recovery_uncompressed_ramdisk): $(MKBOOTFS) \
 	    $(recovery_sepolicy) \
 	    $(INSTALLED_2NDBOOTLOADER_TARGET) \
 	    $(INSTALLED_RECOVERY_BUILD_PROP_TARGET) \
-	    $(recovery_resource_deps) $(recovery_root_deps) \
+	    $(recovery_resource_deps) \
+	    $(recovery_root_deps) \
 	    $(recovery_fstab)
 	# Making recovery image
 	mkdir -p $(TARGET_RECOVERY_OUT)
@@ -2680,6 +2676,10 @@ INTERNAL_SYSTEMIMAGE_FILES := $(sort $(filter $(TARGET_OUT)/%, \
 
 FULL_SYSTEMIMAGE_DEPS := $(INTERNAL_SYSTEMIMAGE_FILES) $(INTERNAL_USERIMAGES_DEPS)
 
+ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
+    FULL_SYSTEMIMAGE_DEPS += $(INSTALLED_KERNEL_TARGET)
+endif
+
 # ASAN libraries in the system image - add dependency.
 ASAN_IN_SYSTEM_INSTALLED := $(TARGET_OUT)/asan.tar.bz2
 ifneq (,$(filter address, $(SANITIZE_TARGET)))
@@ -2988,6 +2988,7 @@ ASAN_OUT_DIRS_FOR_SYSTEM_INSTALL := $(sort $(patsubst $(PRODUCT_OUT)/%,%,\
   $(TARGET_OUT_SHARED_LIBRARIES) \
   $(2ND_TARGET_OUT_SHARED_LIBRARIES) \
   $(TARGET_OUT_VENDOR_SHARED_LIBRARIES) \
+  $(TARGET_OUT_VENDOR_OVERLAY_SHARED_LIBRARIES) \
   $(2ND_TARGET_OUT_VENDOR_SHARED_LIBRARIES)))
 # Extra options: Enforce the system user for the files to avoid having to change ownership.
 ASAN_SYSTEM_INSTALL_OPTIONS := --owner=1000 --group=1000
@@ -3198,6 +3199,7 @@ $(INSTALLED_VENDORIMAGE_TARGET): \
     $(INTERNAL_USERIMAGES_DEPS) \
     $(INTERNAL_VENDORIMAGE_FILES) \
     $(INSTALLED_FILES_FILE_VENDOR) \
+    $(INSTALLED_KERNEL_TARGET) \
     $(RECOVERY_FROM_BOOT_PATCH)
 	$(build-vendorimage-target)
 
@@ -3408,6 +3410,10 @@ endif # BOARD_PREBUILT_DTBOIMAGE
 define images-for-partitions
 $(strip $(foreach item,$(1),$(INSTALLED_$(call to-upper,$(item))IMAGE_TARGET)))
 endef
+
+ifdef TARGET_NEEDS_DTBOIMAGE
+INSTALLED_DTBOIMAGE_TARGET := $(PRODUCT_OUT)/dtbo.img
+endif
 
 # -----------------------------------------------------------------
 # custom images
@@ -4137,7 +4143,9 @@ endif
 ifeq ($(build_otatools_package),true)
 
 INTERNAL_OTATOOLS_MODULES := \
+  aapt \
   aapt2 \
+  adb \
   add_img_to_target_files \
   apksigner \
   append2simg \
@@ -4339,7 +4347,6 @@ endif
 	$(hide) echo 'mkbootimg_args=$(BOARD_MKBOOTIMG_ARGS)' >> $@
 	$(hide) echo 'recovery_mkbootimg_args=$(BOARD_RECOVERY_MKBOOTIMG_ARGS)' >> $@
 	$(hide) echo 'mkbootimg_version_args=$(INTERNAL_MKBOOTIMG_VERSION_ARGS)' >> $@
-	$(hide) echo "use_set_metadata=1" >> $@
 	$(hide) echo "multistage_support=1" >> $@
 	$(hide) echo "blockimgdiff_versions=3,4" >> $@
 ifeq ($(PRODUCT_BUILD_GENERIC_OTA_PACKAGE),true)
@@ -4478,6 +4485,7 @@ name := $(name)-target_files-$(FILE_NAME_TAG)
 
 intermediates := $(call intermediates-dir-for,PACKAGING,target_files)
 BUILT_TARGET_FILES_PACKAGE := $(intermediates)/$(name).zip
+BUILT_TARGET_FILES_PACKAGE_SIGNED := $(intermediates)/$(name)-signed.zip
 $(BUILT_TARGET_FILES_PACKAGE): intermediates := $(intermediates)
 $(BUILT_TARGET_FILES_PACKAGE): \
 	    zip_root := $(intermediates)/$(name)
@@ -4669,9 +4677,6 @@ ifneq (,$(INSTALLED_RECOVERYIMAGE_TARGET)$(filter true,$(BOARD_USES_RECOVERY_AS_
 	$(hide) mkdir -p $(zip_root)/$(PRIVATE_RECOVERY_OUT)
 	$(hide) $(call package_files-copy-root, \
 	    $(TARGET_RECOVERY_ROOT_OUT),$(zip_root)/$(PRIVATE_RECOVERY_OUT)/RAMDISK)
-	@# OTA install helpers
-	$(hide) $(call package_files-copy-root, \
-	    $(PRODUCT_OUT)/install,$(zip_root)/INSTALL)
 ifdef INSTALLED_KERNEL_TARGET
 	cp $(INSTALLED_KERNEL_TARGET) $(zip_root)/$(PRIVATE_RECOVERY_OUT)/
 endif
@@ -4782,6 +4787,12 @@ ifdef BUILDING_VENDOR_IMAGE
 	$(hide) $(call package_files-copy-root, \
 	    $(TARGET_OUT_VENDOR),$(zip_root)/VENDOR)
 endif
+ifdef BOARD_CUSTOM_BOOTIMG
+	@# Prebuilt boot images
+	$(hide) mkdir -p $(zip_root)/BOOTABLE_IMAGES
+	$(hide) $(ACP) $(INSTALLED_BOOTIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+	$(hide) $(ACP) $(INSTALLED_RECOVERYIMAGE_TARGET) $(zip_root)/BOOTABLE_IMAGES/
+endif
 ifdef BUILDING_PRODUCT_IMAGE
 	@# Contents of the product image
 	$(hide) $(call package_files-copy-root, \
@@ -4887,10 +4898,10 @@ ifdef BOARD_PREBUILT_ODMIMAGE
 	$(hide) mkdir -p $(zip_root)/IMAGES
 	$(hide) cp $(INSTALLED_ODMIMAGE_TARGET) $(zip_root)/IMAGES/
 endif
-ifdef BOARD_PREBUILT_DTBOIMAGE
+ifdef INSTALLED_DTBOIMAGE_TARGET
 	$(hide) mkdir -p $(zip_root)/PREBUILT_IMAGES
 	$(hide) cp $(INSTALLED_DTBOIMAGE_TARGET) $(zip_root)/PREBUILT_IMAGES/
-endif # BOARD_PREBUILT_DTBOIMAGE
+endif # INSTALLED_DTBOIMAGE_TARGET
 ifneq ($(strip $(BOARD_CUSTOMIMAGES_PARTITION_LIST)),)
 	$(hide) mkdir -p $(zip_root)/PREBUILT_IMAGES
 	$(hide) $(foreach partition,$(BOARD_CUSTOMIMAGES_PARTITION_LIST), \
@@ -4960,8 +4971,23 @@ endif
 	$(hide) find $(zip_root) -path $(zip_root)/META -prune -o -print | sort >>$@.list
 	$(hide) $(SOONG_ZIP) -L 0 -d -o $@ -C $(zip_root) -l $@.list
 
+$(BUILT_TARGET_FILES_PACKAGE_SIGNED): \
+		 $(BUILT_TARGET_FILES_PACKAGE) \
+		 $(AAPT) \
+		 $(AVBTOOL) \
+		 $(SIGN_TARGET_FILES_APKS)
+	@echo "Package signed target files: $@"
+	$(hide) $(SIGN_TARGET_FILES_APKS) \
+			-p $(HOST_OUT) \
+			-o \
+			-d $(SIGNING_KEYS) $(BUILT_TARGET_FILES_PACKAGE) \
+			$(BUILT_TARGET_FILES_PACKAGE_SIGNED)
+
 .PHONY: target-files-package
 target-files-package: $(BUILT_TARGET_FILES_PACKAGE)
+
+.PHONY: target-files-package-signed
+target-files-package-signed: $(BUILT_TARGET_FILES_PACKAGE_SIGNED)
 
 ifneq ($(filter $(MAKECMDGOALS),target-files-package),)
 $(call dist-for-goals, target-files-package, $(BUILT_TARGET_FILES_PACKAGE))
@@ -4986,38 +5012,29 @@ define build-ota-package-target
 PATH=$(INTERNAL_USERIMAGES_BINARY_PATHS):$$PATH \
     $(OTA_FROM_TARGET_FILES) \
         --verbose \
-        --extracted_input_target_files $(patsubst %.zip,%,$(BUILT_TARGET_FILES_PACKAGE)) \
+         $(if $(SIGNING_KEYS), ,--extracted_input_target_files $(patsubst %.zip,%,$(BUILT_TARGET_FILES_PACKAGE))) \
         --path $(HOST_OUT) \
-        --backup=$(backuptool) \
         $(if $(OEM_OTA_CONFIG), --oem_settings $(OEM_OTA_CONFIG)) \
         $(2) \
-        $(BUILT_TARGET_FILES_PACKAGE) $(1)
+	$(if $(SIGNING_KEYS), $(BUILT_TARGET_FILES_PACKAGE_SIGNED), $(BUILT_TARGET_FILES_PACKAGE)) $(1)
 endef
 
 name := $(TARGET_PRODUCT)
 ifeq ($(TARGET_BUILD_TYPE),debug)
   name := $(name)_debug
 endif
-name := $(name)-ota-$(FILE_NAME_TAG)
+name := OctaviOS-R-$(TARGET_DEVICE)-$(shell date +"%Y%m%d")
 
 INTERNAL_OTA_PACKAGE_TARGET := $(PRODUCT_OUT)/$(name).zip
 INTERNAL_OTA_METADATA := $(PRODUCT_OUT)/ota_metadata
 
-ifeq ($(TARGET_BUILD_VARIANT),user)
-    $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
-else
-ifneq ($(BLISS_BUILD),)
-    $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := true
-else
-    $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
-endif
-endif
-
 $(INTERNAL_OTA_PACKAGE_TARGET): KEY_CERT_PAIR := $(DEFAULT_KEY_CERT_PAIR)
 $(INTERNAL_OTA_PACKAGE_TARGET): .KATI_IMPLICIT_OUTPUTS := $(INTERNAL_OTA_METADATA)
-$(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(OTA_FROM_TARGET_FILES)
+$(INTERNAL_OTA_PACKAGE_TARGET): \
+		$(if $(SIGNING_KEYS), $(BUILT_TARGET_FILES_PACKAGE_SIGNED), $(BUILT_TARGET_FILES_PACKAGE)) \
+		$(OTA_FROM_TARGET_FILES)
 	@echo "Package OTA: $@"
-	$(call build-ota-package-target,$@,-k $(KEY_CERT_PAIR) --output_metadata_path $(INTERNAL_OTA_METADATA))
+	$(call build-ota-package-target,$@,-k $(if $(SIGNING_KEYS), $(SIGNING_KEYS)/releasekey, $(KEY_CERT_PAIR)) --output_metadata_path $(INTERNAL_OTA_METADATA))
 
 .PHONY: otapackage
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
